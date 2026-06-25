@@ -21,8 +21,7 @@ dist/
 build/
 .turbo/
 
-# Desktop MCP binaries and runtime artifacts (copy exes locally; see docs/RUNNING.md)
-rsgpt-desktop/python-servers/*.exe
+# Desktop MCP runtime artifacts (binaries tracked via Git LFS)
 rsgpt-desktop/python-servers/cache/
 rsgpt-desktop/python-servers/logs/
 rsgpt-desktop/python-servers/scripts/
