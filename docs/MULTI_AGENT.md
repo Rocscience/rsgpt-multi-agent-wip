@@ -1,6 +1,6 @@
 # Multi-Agent System — Architecture & Implementation
 
-How RSInsight **Agent mode** orchestrates multiple Rocscience MCP specialists, what was added on top of the original single-agent ai-core, and which files/directories do what.
+How RSInsight **Agent mode** orchestrates multiple Rocscience MCP specialists. All implementation lives in this monorepo under `rsgpt-ai-core/`, with supporting changes in `rsgpt-be/`, `rsgpt-fe/`, and `rsgpt-desktop/`.
 
 ---
 
@@ -215,25 +215,18 @@ rspile-server  ──PeerQuery──▶  rs3-server
 
 ---
 
-## Directory map (ai-core)
+## Monorepo layout
 
 ```
-app/
-├── api/routes/agent.py          # Entry: single-agent vs multi-agent branch
-├── config/multi_agent_servers.yaml
-├── models/agent.py              # AgentRequest, SSE event models
-├── models/chat.py               # ChatMessage + tool_calls
-├── llm/providers/openai_client.py
-└── services/
-    ├── agent/                   # ORIGINAL single-agent orchestration
-    ├── streaming/               # WebSocket, RAG, connection_manager
-    └── multi_agent/             # NEW entire multi-agent stack
-        ├── agents/              # AutoGen specialist + consultant
-        ├── orchestration_service.py
-        ├── workflow.py
-        ├── planner.py
-        └── … (see table above)
+rsgpt-multi-agent-wip/
+├── rsgpt-ai-core/          # Orchestrator + multi_agent package
+├── rsgpt-be/               # API + timeline coalescer
+├── rsgpt-fe/               # Agent mode UI
+├── rsgpt-desktop/          # MCP gateway
+└── docs/
 ```
+
+All paths below are relative to **`rsgpt-ai-core/`** unless noted.
 
 ---
 

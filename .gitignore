@@ -1,17 +1,38 @@
-# Cloned service repos (see scripts/clone-all.ps1)
-repos/*
-!repos/.gitkeep
-
-# Local env
+# Secrets
 .env
-.env.local
-*.env
+.env.*
+!.env.example
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+htmlcov/
+*.egg-info/
+
+# Node
+node_modules/
+.next/
+dist/
+build/
+.turbo/
+
+# Desktop MCP binaries and runtime artifacts (copy exes locally; see docs/RUNNING.md)
+rsgpt-desktop/python-servers/*.exe
+rsgpt-desktop/python-servers/cache/
+rsgpt-desktop/python-servers/logs/
+rsgpt-desktop/python-servers/scripts/
+rsgpt-desktop/python-servers/saves/
+rsgpt-desktop/python-servers/rs3_repo/
 
 # OS / editor
 .DS_Store
 Thumbs.db
 .idea/
 .vscode/
-
-# Logs
 *.log
+*.jsonl

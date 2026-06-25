@@ -1,0 +1,353 @@
+name: Build QA
+
+on:
+  push:
+    branches: [ qa ]
+  workflow_dispatch:  # Allows manual trigger from GitHub Actions UI
+
+permissions:
+  id-token: write   # Required for OIDC authentication with AWS
+  contents: write   # Required for creating/pushing tags
+
+jobs:
+  build-qa-windows:
+    runs-on: [self-hosted, Windows, X64]
+    environment: qa
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+      checksum: ${{ steps.checksum.outputs.hash }}
+
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+      with:
+        fetch-depth: 0  # Fetch all history for tags
+
+    - name: Setup Node.js
+      uses: actions/setup-node@v3
+      with:
+        node-version: 20.x
+        cache: 'npm'
+
+    - name: Clean install dependencies
+      run: |
+        Remove-Item -Path node_modules -Recurse -Force -ErrorAction SilentlyContinue
+        npm cache clean --force
+        npm ci
+
+    - name: Verify TypeScript installation
+      run: |
+        Write-Host "Checking TypeScript installation..."
+        npm list typescript
+        node -e "console.log(require.resolve('typescript'))"
+
+    - name: Create QA .env file
+      shell: powershell
+      run: |
+        Write-Host "Creating QA environment .env file..."
+        @"
+        AUTH0_DOMAIN=${{ secrets.AUTH0_DOMAIN }}
+        AUTH0_CLIENT_ID=${{ secrets.AUTH0_CLIENT_ID }}
+        AUTH0_AUDIENCE=${{ secrets.AUTH0_AUDIENCE }}
+        API_BASE_URL=${{ secrets.API_BASE_URL }}
+        API_AI_BASE_URL=${{ secrets.API_AI_BASE_URL }}
+        PINECONE_NAMESPACE=${{ secrets.PINECONE_NAMESPACE }}
+        PINECONE_INDEX=${{ secrets.PINECONE_INDEX }}
+        PINECONE_TOP_K=${{ secrets.PINECONE_TOP_K }}
+        "@ | Out-File -FilePath .env -Encoding utf8
+        Write-Host "QA .env file created successfully"
+
+    - name: Determine version
+      id: version
+      shell: powershell
+      run: |
+        $ErrorActionPreference = 'SilentlyContinue'
+
+        git fetch --tags --force
+
+        # Get all version tags
+        $tagsOutput = git tag -l "v*.*.*"
+        $tags = @()
+        if ($tagsOutput) {
+          $tags = @($tagsOutput) | Where-Object { $_ -match '^v\d+\.\d+\.\d+$' }
+        }
+
+        if ($tags -and $tags.Count -gt 0) {
+          # Sort versions properly (as version objects)
+          $sortedTags = $tags | ForEach-Object {
+            $v = $_ -replace '^v', ''
+            [PSCustomObject]@{ Tag = $_; Version = [Version]$v }
+          } | Sort-Object Version
+
+          $LATEST_TAG = $sortedTags[-1].Tag
+          Write-Host "Latest tag found: $LATEST_TAG"
+        } else {
+          $LATEST_TAG = "v1.0.0"
+          Write-Host "No existing tags found, starting from $LATEST_TAG"
+        }
+
+        # Parse version components
+        $versionStr = $LATEST_TAG -replace '^v', ''
+        $versionParts = $versionStr -split '\.'
+        $major = [int]$versionParts[0]
+        $minor = [int]$versionParts[1]
+        $patch = [int]$versionParts[2] + 1
+
+        $VERSION = "$major.$minor.$patch"
+        Write-Host "Auto-incrementing version from $LATEST_TAG to v$VERSION"
+
+        # Check if the new tag already exists (use git tag -l instead of rev-parse)
+        $existingTag = git tag -l "v$VERSION"
+        if ($existingTag) {
+          Write-Host "Tag v$VERSION already exists, incrementing again..."
+          $patch = $patch + 1
+          $VERSION = "$major.$minor.$patch"
+          Write-Host "Using version v$VERSION instead"
+        }
+
+        # Create and push the new tag
+        $ErrorActionPreference = 'Stop'
+        git config user.name 'github-actions[bot]'
+        git config user.email 'github-actions[bot]@users.noreply.github.com'
+        git tag "v$VERSION"
+        git push origin "v$VERSION"
+
+        echo "version=$VERSION" >> $env:GITHUB_OUTPUT
+        Write-Host "Version for release: $VERSION"
+
+    - name: Update package.json version
+      shell: powershell
+      run: |
+        $VERSION = "${{ steps.version.outputs.version }}"
+        Write-Host "Updating package.json version to $VERSION"
+
+        # Read package.json
+        $packageJson = Get-Content -Path "package.json" -Raw | ConvertFrom-Json
+
+        # Update version
+        $packageJson.version = $VERSION
+
+        # Write back to file without BOM (UTF8NoBOM prevents the BOM character that breaks JSON parsing)
+        $jsonOutput = $packageJson | ConvertTo-Json -Depth 100
+        [System.IO.File]::WriteAllText("$PWD\package.json", $jsonOutput, [System.Text.UTF8Encoding]::new($false))
+
+        Write-Host "[SUCCESS] package.json version updated to $VERSION"
+
+    - name: Build
+      run: npm run build
+
+    - name: Package
+      run: npm run package
+
+    - name: Sign Windows installer
+      shell: powershell
+      run: |
+        $exePath = (Get-ChildItem -Path 'release' -Filter '*.exe' | Where-Object { $_.Name -notlike '*.blockmap' }).FullName
+
+        if (-not $exePath) {
+          Write-Error "No .exe file found in release directory!"
+          exit 1
+        }
+
+        Write-Host "Found installer: $exePath"
+        Write-Host "Signing with Sectigo certificate via eToken..."
+
+        $certPath = "I:\Rocscience Installations\Latest Dll's\code signing\Sectigo_20250109102658.cer"
+
+        if (-not (Test-Path $certPath)) {
+          Write-Error "Certificate file not found at: $certPath"
+          Write-Error "Please ensure I: drive is accessible and certificate file exists"
+          exit 1
+        }
+
+        & "C:\Program Files (x86)\Windows Kits\10\bin\10.0.26100.0\x64\signtool.exe" sign `
+          /a `
+          /td sha256 `
+          /d "RSInsight Desktop" `
+          /fd sha256 `
+          /tr http://timestamp.sectigo.com `
+          /f "$certPath" `
+          /csp "eToken Base Cryptographic Provider" `
+          /kc "[{{rockeng@439-780}}]=Sectigo_20250109102658" `
+          "$exePath"
+
+        if ($LASTEXITCODE -ne 0) {
+          Write-Error "Signing failed with exit code: $LASTEXITCODE"
+          exit 1
+        }
+
+        Write-Host "[SUCCESS] Signing completed"
+
+    - name: Verify signature
+      shell: powershell
+      run: |
+        $exePath = (Get-ChildItem -Path 'release' -Filter '*.exe' | Where-Object { $_.Name -notlike '*.blockmap' }).FullName
+
+        Write-Host "Verifying signature..."
+        & "C:\Program Files (x86)\Windows Kits\10\bin\10.0.26100.0\x64\signtool.exe" verify /pa /v "$exePath"
+
+        if ($LASTEXITCODE -ne 0) {
+          Write-Error "Signature verification failed!"
+          exit 1
+        }
+
+        Write-Host "[SUCCESS] Signature verified"
+
+    - name: Update latest.yml with signed exe checksum
+      shell: powershell
+      run: |
+        $exePath = (Get-ChildItem -Path 'release' -Filter '*.exe' | Where-Object { $_.Name -notlike '*.blockmap' }).FullName
+        $exeName = (Get-Item $exePath).Name
+        $latestYml = "release\latest.yml"
+
+        if (-not (Test-Path $latestYml)) {
+          Write-Error "latest.yml not found!"
+          exit 1
+        }
+
+        Write-Host "Calculating SHA512 checksum for signed installer..."
+        $sha512Hash = (Get-FileHash -Path $exePath -Algorithm SHA512).Hash
+
+        # Convert hex string to byte array (PowerShell 5.1 compatible)
+        $bytes = [byte[]]::new($sha512Hash.Length / 2)
+        for ($i = 0; $i -lt $sha512Hash.Length; $i += 2) {
+          $bytes[$i / 2] = [Convert]::ToByte($sha512Hash.Substring($i, 2), 16)
+        }
+        $sha512Base64 = [Convert]::ToBase64String($bytes)
+
+        Write-Host "SHA512 (hex): $sha512Hash"
+        Write-Host "SHA512 (base64): $sha512Base64"
+
+        # Read latest.yml
+        $ymlContent = Get-Content -Path $latestYml -Raw
+
+        # Update the sha512 field
+        $ymlContent = $ymlContent -replace "sha512:\s+[^\r\n]+", "sha512: $sha512Base64"
+
+        # Write back to latest.yml
+        [System.IO.File]::WriteAllText($latestYml, $ymlContent, [System.Text.UTF8Encoding]::new($false))
+
+        Write-Host "[SUCCESS] Updated latest.yml with signed exe checksum"
+        Write-Host "Updated latest.yml content:"
+        Get-Content -Path $latestYml
+
+    - name: Calculate SHA256 checksum
+      id: checksum
+      shell: powershell
+      run: |
+        $exePath = (Get-ChildItem -Path 'release' -Filter '*.exe' | Where-Object { $_.Name -notlike '*.blockmap' }).FullName
+        $hash = (Get-FileHash -Path $exePath -Algorithm SHA256).Hash.ToLower()
+
+        Write-Host "SHA256: $hash"
+        echo "hash=$hash" >> $env:GITHUB_OUTPUT
+
+    - name: Copy to network drive
+      shell: powershell
+      run: |
+        $exePath = (Get-ChildItem -Path 'release' -Filter '*.exe' | Where-Object { $_.Name -notlike '*.blockmap' }).FullName
+        $destFolder = "S:\Pipelines QA\RSInsight Desktop M+"
+
+        if (-not (Test-Path $destFolder)) {
+          Write-Error "Network drive not accessible: $destFolder"
+          exit 1
+        }
+
+        Copy-Item -Path $exePath -Destination $destFolder -Force
+        Write-Host "[SUCCESS] Copied to: $destFolder"
+
+    - name: Configure AWS credentials (OIDC)
+      uses: aws-actions/configure-aws-credentials@v4
+      with:
+        role-to-assume: ${{ secrets.AWS_ROLE_TO_ASSUME }}
+        aws-region: ${{ vars.AWS_REGION }}
+
+    - name: Upload to S3
+      shell: powershell
+      run: |
+        $VERSION = "${{ steps.version.outputs.version }}"
+        $S3_BUCKET = "${{ vars.S3_BUCKET_NAME }}"
+        $S3_PREFIX = "rsinsight-desktop/v$VERSION"
+        $S3_LATEST = "rsinsight-desktop/latest"
+
+        # Use full path to AWS CLI (installed in previous run)
+        $awsCli = "C:\Program Files\Amazon\AWSCLIV2\aws.exe"
+
+        # Verify AWS CLI is available
+        if (Test-Path $awsCli) {
+          Write-Host "AWS CLI found at: $awsCli"
+          & $awsCli --version
+        } else {
+          Write-Error "AWS CLI not found at $awsCli. Please install it on the runner."
+          exit 1
+        }
+
+        Write-Host "Uploading to S3 bucket: $S3_BUCKET"
+        Write-Host "Version prefix: $S3_PREFIX"
+        Write-Host "Latest prefix: $S3_LATEST"
+
+        # List release files
+        Write-Host "Files to upload:"
+        Get-ChildItem -Path 'release' | ForEach-Object { Write-Host "  - $($_.Name)" }
+
+        # Clear the latest folder first to ensure only one version exists
+        # (filenames contain version numbers, so we need to remove old versions)
+        Write-Host "Clearing existing files from latest folder..."
+        & $awsCli s3 rm "s3://$S3_BUCKET/$S3_LATEST/" --recursive
+        Write-Host "Latest folder cleared."
+
+        # Upload the installer exe
+        $exeFile = Get-ChildItem -Path 'release' -Filter '*.exe' | Where-Object { $_.Name -notlike '*.blockmap' } | Select-Object -First 1
+        if ($exeFile) {
+          $exeName = $exeFile.Name
+          Write-Host "Uploading installer to versioned folder: $exeName"
+          & $awsCli s3 cp $exeFile.FullName "s3://$S3_BUCKET/$S3_PREFIX/$exeName"
+
+          Write-Host "Uploading installer to latest folder: $exeName"
+          & $awsCli s3 cp $exeFile.FullName "s3://$S3_BUCKET/$S3_LATEST/$exeName"
+        } else {
+          Write-Error "No .exe file found!"
+          exit 1
+        }
+
+        # Upload blockmap if it exists
+        $blockmapFile = Get-ChildItem -Path 'release' -Filter '*.blockmap' -ErrorAction SilentlyContinue | Select-Object -First 1
+        if ($blockmapFile) {
+          $blockmapName = $blockmapFile.Name
+          Write-Host "Uploading blockmap to versioned folder: $blockmapName"
+          & $awsCli s3 cp $blockmapFile.FullName "s3://$S3_BUCKET/$S3_PREFIX/$blockmapName"
+
+          Write-Host "Uploading blockmap to latest folder: $blockmapName"
+          & $awsCli s3 cp $blockmapFile.FullName "s3://$S3_BUCKET/$S3_LATEST/$blockmapName"
+        } else {
+          Write-Host "No blockmap file found (optional)"
+        }
+
+        # Upload latest.yml to the latest folder (alongside exe and blockmap for auto-updater)
+        $latestYml = "release\latest.yml"
+        if (Test-Path $latestYml) {
+          Write-Host "Uploading latest.yml for auto-updater"
+          & $awsCli s3 cp $latestYml "s3://$S3_BUCKET/$S3_LATEST/latest.yml"
+        } else {
+          Write-Host "No latest.yml file found (optional)"
+        }
+
+        Write-Host ""
+        Write-Host "[SUCCESS] Uploaded to s3://$S3_BUCKET/$S3_PREFIX/"
+        Write-Host "[SUCCESS] Uploaded to s3://$S3_BUCKET/$S3_LATEST/"
+
+    - name: Print release summary
+      shell: powershell
+      run: |
+        $VERSION = "${{ steps.version.outputs.version }}"
+        $HASH = "${{ steps.checksum.outputs.hash }}"
+        $S3_BUCKET = "${{ vars.S3_BUCKET_NAME }}"
+
+        Write-Host ""
+        Write-Host "=========================================="
+        Write-Host "         RELEASE SUMMARY"
+        Write-Host "=========================================="
+        Write-Host "Version:      v$VERSION"
+        Write-Host "SHA256:       $HASH"
+        Write-Host "Versioned:    s3://$S3_BUCKET/rsinsight-desktop/v$VERSION/"
+        Write-Host "Latest:       s3://$S3_BUCKET/rsinsight-desktop/latest/"
+        Write-Host "=========================================="

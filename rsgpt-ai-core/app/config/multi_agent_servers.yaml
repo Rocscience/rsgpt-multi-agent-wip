@@ -1,0 +1,280 @@
+model: gpt-4o
+peer_rpc_timeout_seconds: 300
+
+orchestrator:
+  validate_specialist_outputs: true
+  strict_validation: true
+  require_successful_open: true
+  require_mcp_tool_success: false
+  max_specialist_retries: 1
+  retry_on_validation_failure: true
+  stop_on_validation_failure: false
+  stop_on_specialist_failure: false
+  keep_desktop_apps_open: true
+
+consultant:
+  enabled: true
+  top_k: 6
+  display_name: "Software Consultant"
+
+servers:
+  rs2-server:
+    display_name: "RS2"
+    capabilities: "2D FE geotechnical (.fez). Materials, stages, consolidation, groundwater."
+    integration_hints: "Pairs with Settle3 (embankment settlement), RSPile (soil stiffness for piles), RS3 (2D section export), Dips (conceptual joint sets), Slide2 (2D slope sections)."
+    peer_offers: "Material names, E, nu, stages, mesh via rs2_get_model_state; missing properties (e.g. unit weight) via BigTool grep→activate→invoke."
+    peer_needs: "Settlement layer names/Cc/cv from Settle3; pile layout from RSPile; 3D confirmation from RS3."
+    file_extensions: [".fez"]
+    tool_patterns: ["^rs2_", "^RS2_", "^enable_rs2", "^open_rs2"]
+    open_tool: open_rs2_model
+    open_path_arg: path
+    state_tool: rs2_get_model_state
+    default_file_path: "C:\\Users\\Public\\Documents\\Rocscience\\RS2 Examples\\Tutorials\\Consolidation Settlement\\Embankment Consolidation.fez"
+    agent_type: rs2_specialist
+    agent_playbook: |
+      RS2 READ STRATEGY (regular tools first, BigTool only for gaps):
+      1) Start with rs2_get_model_state (and other READ tools listed above) for materials, E, nu, stages, mesh.
+      2) Use whatever unit weight / strength values appear in that output when present.
+      3) Ignore placeholder values (e.g. 1e20 saturated/moist unit weights) — treat as missing, not real data.
+      4) Do NOT infer unit weight from rhoS×g unless BigTool also failed and you label it as an estimate.
+
+      WHEN A PARAMETER IS MISSING FROM REGULAR TOOLS (e.g. unit weight, phi, c, Su):
+      1) RS2_grep_tool — search for a getter name or material/layer name from the task (e.g. "getUnitWeight", material name).
+      2) RS2_activate_function_by_name — activate the getter on the Root Object path shown in grep (do not hardcode paths).
+      3) Call the activated RS2_* getter with {} and report the numeric result.
+      4) Repeat for other missing properties only as needed — minimal tool calls.
+
+  rspile-server:
+    display_name: "RSPile"
+    capabilities: "Pile analysis (.rspile2). Piles, sections, capacity, soil profiles (BigTool)."
+    integration_hints: "Pairs with RS2/RS3 for soil parameters; Slide2 for slope stability with RSPile pile supports."
+    peer_offers: "Pile/section summary from rspile_get_model_state; soil layer gamma/Su/phi via BigTool (grep → activate → invoke RSP_* getters)."
+    peer_needs: "Soil E, nu, gamma, phi, c per layer from RS2; layer stack from Settle3; slope/support context from Slide2."
+    file_extensions: [".rspile2"]
+    tool_patterns: ["^rspile_", "^RSP_", "^RSPile_", "^enable_rspile", "^open_rspile"]
+    open_tool: rspile_open_model
+    open_path_arg: path
+    state_tool: rspile_get_model_state
+    default_file_path: "C:\\Users\\Public\\Documents\\Rocscience\\RSPile Examples\\Tutorials\\Tutorial 1 - Axial Pile Analysis.rspile2"
+    agent_type: rspile_specialist
+    agent_playbook: |
+      RSPile SOIL READ/WRITE (mandatory for layer properties):
+      - rspile_get_model_state returns PILES/SECTIONS ONLY — not soil layers or gamma/Su/phi.
+      - rspile_get_model_settings gives analysis options and confirms units (often SI Metric).
+      - Do NOT call getSoilProperties on RSPileModel — it returns object lists and cannot be invoked.
+
+      SOIL PROPERTY WORKFLOW (only when rspile_get_model_state lacks the value you need):
+      1) RSP_grep_tool — search for the property or layer name (e.g. pattern from the task: "UnitWeight", "layer", or a soil name from the prompt).
+      2) RSP_activate_function_by_name — activate the getter on the Root Object path from grep (do not guess paths).
+      3) IMMEDIATELY call the activated getter tool with {} — activation alone is not a read.
+      4) If needed: call_mcp_tool with the activated RSP_* tool name and {}.
+      5) Report only numeric values from getter invoke results.
+
+      WRITE + RECOMPUTE (when asked to align with another product or compare before/after):
+      1) Read current value with getter — record as "before".
+      2) rspile_compute — baseline analysis.
+      3) rspile_get_model_results, then call_mcp_tool get_pile_results with graphing options from the registered tool list.
+         Record max/min as "before" pile results.
+      4) RSP_activate_function_by_name for the setter on the same root path discovered via grep.
+      5) call_mcp_tool with required setter arguments (never invoke a setter with {}).
+         Void return is OK — re-read the getter to confirm.
+      6) rspile_compute again, then get_pile_results again — record "after" and compare.
+      7) Do NOT call reset_tools / rspile_cleanup_tools until before/after values are in your summary.
+
+      RS2 GAMMA ALIGNMENT (critical — wrong setter = no visible change):
+      - RS2 "unit weight" / gamma from getUnitWeight (InitialConditions) maps to RSPile **setUnitWeight** on the soil layer (e.g. Soft Clay).
+      - Do NOT use setSaturatedUnitWeight to match RS2 gamma unless RS2 explicitly provided a saturated unit weight read from tools.
+      - After setUnitWeight, re-read getUnitWeight (not getSaturatedUnitWeight) to confirm the value the UI shows.
+
+      CROSS-PRODUCT BEFORE/AFTER (mandatory order when aligning with RS2):
+      1) rspile_compute → rspile_get_model_results → RSPile_Results_list_graphing_options → RSPile_Results_get_pile_results (record max/min as BEFORE).
+      2) Read Soft Clay getUnitWeight (before value).
+      3) setUnitWeight from RS2 → re-read getUnitWeight (after value).
+      4) rspile_compute → rspile_get_model_results → get_pile_results again (record max/min as AFTER).
+      5) Summary must include numeric before/after pile results AND parameter before/after — not only parameter read-back.
+
+      FROM-SCRATCH / NO FILE PATH (when goal says create from scratch or path is n/a):
+      1) Workflow opens scratch_model_path (blank .rspile2 template) via rspile_open_model — not tutorial examples.
+      2) If open fails, create the template once: RSPile File > New → Save As the configured scratch_model_path.
+      3) rspile_get_model_settings → rspile_get_model_state (pile/section names only).
+      4) Soils: grep "Soil Property" (not soil names like "Soft Clay" — blank template uses Soil Property 1, 2, …). Activate setName/setUnitWeight/setLateralType on ['RSPileModel','Soil Property N',…] paths from grep.
+      5) Pile section: grep "Pile Section" / Pipe → setOutsideDiameter, setWallThickness, setDepth (~20 m).
+      6) Pile type + borehole: grep Pile Type / fieldpoint / setLength / setLoading — assign section, place pile at borehole.
+      7) Lateral load: grep Force / Load / Fx on pile-type roots → set loading at pile head.
+      8) MANDATORY CHECK: rspile_get_model_state must show non-empty active_piles before rspile_compute. Empty active_piles → RSPile GUI "No files in the queue" (compute is blocked by the orchestrator until piles exist).
+      9) ENUM SETTERS: activate matching getter on same root path first; pass member name or integer from getter output or from Parameter mapping in the activated setter's tool description.
+      10) After setters on a property, re-read that property's getter before summarizing.
+      11) rspile_compute → rspile_get_model_results → follow the WORKFLOW HINT (registered Results tools; do not grep).
+      12) rspile_save_model — verify "Successfully saved" in tool output.
+
+  settle3-server:
+    display_name: "Settle3"
+    capabilities: "Settlement analysis (.s3z, .s3d). Layers, loads, consolidation time-settlement."
+    integration_hints: "Pairs with RS2/RS3 embankment models for matching soil names and unit weights."
+    peer_offers: "Layer names, Cc, Cs, cv, mv, drainage, load staging via analyze_model."
+    peer_needs: "FE material names and gamma from RS2/RS3 for consistency checks."
+    file_extensions: [".s3z", ".s3d"]
+    tool_patterns: ["^settle3_", "^Settle3_", "^open_settle3", "^modify_settle3", "^answer_settle3", "^analyze_model$"]
+    open_tool: open_settle3_model
+    open_path_arg: settle3_current_file_path
+    state_tool: analyze_model
+    state_tool_arguments:
+      model_file_path: "__FILE_PATH__"
+      model_type: settle3
+    default_file_path: "C:\\Users\\Public\\Documents\\Rocscience\\Settle3 Examples\\Tutorials\\Tutorial 01 Quick Start.s3z"
+    agent_type: settle3_specialist
+    agent_playbook: |
+      Settle3 READ/WRITE:
+      1) open_settle3_model opens the .s3z/.s3d file (orchestrator does this before you run).
+      2) analyze_model with model_file_path and model_type=settle3 — primary read for layers, loads, consolidation settings.
+      3) modify_settle3_script for script edits; re-run analyze_model after changes to confirm.
+      4) Report only values from analyze_model / modify tool output — do not invent layer properties.
+
+  dips-server:
+    display_name: "Dips"
+    capabilities: "Stereonet/discontinuity (.dips9). Traverses, joint sets, orientation data."
+    integration_hints: "Feeds RocSlope/UnWedge; conceptual link to RS2/RS3/Slide2 (orientations vs continuum FE)."
+    peer_offers: "Traverse summary, joint set mean dip/dip direction, kinematic % critical via dips_show_active_traverse."
+    peer_needs: "Slope geometry or material context from RS2/Slide2 if user asks for coupled interpretation."
+    file_extensions: [".dips9"]
+    tool_patterns: ["^dips_", "^Dips_", "^open_dips"]
+    open_tool: dips_open_model
+    open_path_arg: path
+    state_tool: dips_show_active_traverse
+    state_tool_arguments: {}
+    default_file_path: "C:\\Users\\Public\\Documents\\Rocscience\\Dips 9.0 Examples\\Curved Borehole.dips9"
+    agent_type: dips_specialist
+    agent_playbook: |
+      Dips READ:
+      1) dips_open_model opens the .dips9 file (orchestrator does this before you run).
+      2) dips_show_active_traverse — primary traverse/orientation summary.
+      3) Use other dips_* tools for edits; report only tool output values.
+
+  rs3-server:
+    display_name: "RS3"
+    capabilities: "3D FE geotechnical (.rs3v3). Coding agent writes/runs RS3 Python scripts via run_rs3_agent."
+    integration_hints: "Pairs with RS2 (2D section), Settle3 (settlement), RSPile (piles)."
+    peer_offers: "3D model changes and material/layer data via run_rs3_agent(task) after enable_rs3_server."
+    peer_needs: "2D soil parameters from RS2; settlement layers from Settle3."
+    file_extensions: [".rs3v3"]
+    tool_patterns: ["^rs3_", "^RS3_", "^enable_rs3", "^run_rs3", "^open_rs3", "^modify_rs3"]
+    open_tool: enable_rs3_server
+    open_path_arg: ""
+    state_tool: run_rs3_agent
+    default_file_path: "C:\\Users\\Public\\Documents\\Rocscience\\RS3 Examples\\Tutorials\\Embankment Consolidation-no wick drain\\Embankment Consolidation-no wick drain.rs3v3"
+    agent_type: rs3_specialist
+
+  slide2-server:
+    display_name: "Slide2"
+    capabilities: "2D limit-equilibrium slope stability (.slmd). Geometry, materials, groundwater, supports (including RSPile-linked), scenarios."
+    integration_hints: "Pairs with RSPile for pile resistance supports; RS2 for detailed FE soils; Settle3 for settlement context."
+    peer_offers: "Model summary and script edits via modify_slide2_model; support property definitions (including RSPile type=7); compare_slide2_models for diffs."
+    peer_needs: "Pile/soil properties and .rspile2 design data from RSPile; FE soil parameters from RS2 when aligning materials."
+    file_extensions: [".slmd"]
+    tool_patterns: ["^open_slide2", "^modify_slide2", "^get_slide2", "^compare_slide2"]
+    open_tool: open_slide2_model
+    open_path_arg: slide2_current_file_path
+    state_tool: get_slide2_modifying_tool_capabilities
+    default_file_path: "C:\\Users\\Public\\Documents\\Rocscience\\Slide2 Examples\\Tutorials\\Quick Start\\Quick Start.slmd"
+    agent_type: slide2_specialist
+    agent_playbook: |
+      Slide2 MODEL EDITING (no compute/interpret tools):
+      1) modify_slide2_model edits extracted .slmd scripts — use for materials, supports, scenarios, loads.
+      2) RSPile support: support type=7; set rspile_filename and soil displacement settings in anchor material records.
+      3) compare_slide2_models diffs two .slmd files after edits.
+      4) Slide2 MCP cannot run slope stability compute or read FOS — say so honestly if user asks for analysis results.
+      5) For RSPile pile data, ask rspile-server via ask_agent_peer or rely on linked .rspile2 path in the model.
+
+bootstrap_tool_calls:
+  rs2-server:
+    - tool_name: enable_rs2_server
+      arguments: {}
+  rspile-server:
+    - tool_name: rspile_enable_server
+      arguments: {}
+  settle3-server: []
+  dips-server:
+    - tool_name: dips_enable_server
+      arguments: {}
+  rs3-server:
+    - tool_name: enable_rs3_server
+      arguments: {}
+  slide2-server: []
+
+agent_types:
+  rs2-server: rs2_specialist
+  rspile-server: rspile_specialist
+  settle3-server: settle3_specialist
+  dips-server: dips_specialist
+  rs3-server: rs3_specialist
+  slide2-server: slide2_specialist
+
+cross_product_scenarios:
+  - id: embankment_fe_settlement
+    title: "Embankment FE + settlement (RS2 + Settle3)"
+    servers: [rs2-server, settle3-server]
+    goal_template: |
+      Open RS2 embankment consolidation and Settle3 quick-start tutorials.
+      RS2: list materials (E, nu, gamma). Settle3: list consolidation layers (Cc, cv, gamma).
+      Each specialist must ask_agent_peer at least once to align soil/layer names.
+      Produce a comparison table of overlapping parameters; mark not available honestly.
+
+  - id: embankment_3d_settlement
+    title: "3D embankment + settlement (RS3 + Settle3)"
+    servers: [rs3-server, settle3-server]
+    goal_template: |
+      Open RS3 embankment consolidation (no wick drain) and Settle3 quick-start.
+      RS3: list material names via run_rs3_agent. Settle3: layer stack and consolidation params.
+      Cross-check names and unit weight via ask_agent_peer. Table of shared vs product-specific data.
+
+  - id: pile_fe_soils
+    title: "Pile + 2D FE soils (RSPile + RS2)"
+    servers: [rspile-server, rs2-server]
+    goal_template: |
+      Open RSPile Tutorial 1 and RS2 Embankment Consolidation.
+      RS2: export material stiffnesses. RSPile: pile summary; ask RS2 for missing soil params.
+
+  - id: slope_discontinuities_fe
+    title: "Discontinuities + FE (Dips + RS2)"
+    servers: [dips-server, rs2-server]
+    goal_template: |
+      Open Dips Curved Borehole and RS2 Embankment Consolidation.
+      Dips: traverse and set statistics. RS2: materials and stages.
+      Peer Q&A on whether Dips orientations could inform RS2 material zoning (conceptual).
+
+  - id: slide2_rspile_pile_resistance
+    title: "Slope pile support (Slide2 + RSPile)"
+    servers: [slide2-server, rspile-server]
+    goal_template: |
+      Open Slide2 Tutorial 21 Pile Resistance using RSPile and the matching RSPile .rspile2 file.
+      Slide2: summarize scenarios, support types, and RSPile-linked support settings from the model.
+      RSPile: summarize pile section, borehole layers, and compute pile results if computable.
+      Use ask_agent_peer to align soil layer names between products. Note honestly if compute/FOS
+      cannot be run via MCP (Slide2 has no compute tool). Table of shared soil/pile parameters only.
+
+  - id: full_embankment_review
+    title: "Full cross-product review (Dips + RS2 + RSPile + Settle3)"
+    servers: [dips-server, rs2-server, rspile-server, settle3-server]
+    goal_template: |
+      Open default tutorial for each product. One paragraph per specialist plus peer cross-checks.
+      Final overlap table: materials/layers/piles/discontinuities; SI units; note gaps.
+
+  - id: rs2_rspile_transfer
+    title: "RS2 + RSPile: align soil data, update pile model, rerun"
+    servers: [rs2-server, rspile-server]
+    goal_template: |
+      Open RS2 and RSPile tutorial models. List soil/material properties in each.
+      Have specialists agree which layers correspond. In RSPile only: run analysis once,
+      update ONE parameter to align with RS2, re-read, rerun, compare before/after pile results.
+      Table with numeric values from MCP tool output only.
+    notes: |
+      RS2: rs2_get_model_state first; BigTool for missing gamma.
+      RSPile: compute → get_pile_results (before) → setter → getter → compute → get_pile_results (after).
+
+  - id: rs3_settle3_transfer
+    title: "RS3 + Settle3: align embankment layers, update settlement model, rerun"
+    servers: [rs3-server, settle3-server]
+    goal_template: |
+      Open Settle3 Quick Start and RS3 embankment consolidation tutorials.
+      Summarize layers/materials in each; align names via ask_agent_peer; update one Settle3 layer
+      property to match RS3; rerun Settle3 analysis; before/after comparison from MCP tool output.

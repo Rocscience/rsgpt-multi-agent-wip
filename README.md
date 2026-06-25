@@ -1,54 +1,44 @@
 # rsgpt-multi-agent-wip
 
-Work-in-progress **integration workspace** for RSInsight multi-agent Agent mode — orchestrating RS2, RSPile, RS3, Settle3, Slide2, and Dips MCP specialists via the user's Desktop.
+Monorepo work-in-progress for RSInsight **multi-agent Agent mode** — all service source in one place.
 
-This repo does **not** duplicate application source code. It pins, clones, and documents the Rocscience services that form the stack:
-
-| Repo | Branch | Role |
-|------|--------|------|
-| [rsgpt-ai-core](https://github.com/Rocscience/rsgpt-ai-core) | `feat/multi-agent-production-integration` | Multi-agent orchestrator, planner, specialists |
-| [rsgpt-be](https://github.com/Rocscience/rsgpt-be) | `feat/multi-agent-production-integration` | API gateway, timeline coalescer |
-| [rsgpt-fe](https://github.com/Rocscience/rsgpt-fe) | `feat/multi-agent-production-integration` | Agent mode UI, workflow trace |
-| [rsgpt-desktop](https://github.com/Rocscience/rsgpt-desktop) | `main` (+ local MCP fixes) | MCP gateway, WebSocket to ai-core |
+| Directory | Role |
+|-----------|------|
+| `rsgpt-ai-core/` | Multi-agent orchestrator, planner, MCP specialists, `/api/v1/agent/stream` |
+| `rsgpt-be/` | API gateway, auth, timeline coalescer for specialist handoffs |
+| `rsgpt-fe/` | Agent mode UI, workflow trace, SSE event handling |
+| `rsgpt-desktop/` | MCP gateway, WebSocket to ai-core, `mcp-servers.json` |
 
 ## Quick start
 
 ```powershell
 git clone https://github.com/Rocscience/rsgpt-multi-agent-wip.git
 cd rsgpt-multi-agent-wip
-
-# Link existing local clones (if integration branches not on GitHub yet)
-.\scripts\clone-all.ps1 -UseLocal "c:\Users\YourName\rsgpt"
-
-# Or clone fresh once branches are pushed
-.\scripts\clone-all.ps1
 ```
 
-Then follow **[docs/RUNNING.md](docs/RUNNING.md)** to start Desktop → BE → ai-core → FE.
+Follow **[docs/RUNNING.md](docs/RUNNING.md)** — install deps in each service directory, start Desktop → BE → ai-core → FE.
 
-## Documentation
+Architecture and file map: **[docs/MULTI_AGENT.md](docs/MULTI_AGENT.md)**.
 
-| Doc | Contents |
-|-----|----------|
-| **[docs/RUNNING.md](docs/RUNNING.md)** | Prerequisites, env vars, start order, smoke tests, troubleshooting |
-| **[docs/MULTI_AGENT.md](docs/MULTI_AGENT.md)** | Architecture, request flow, files added/changed, directory map |
+## Layout
 
-## Integration status
+```
+rsgpt-multi-agent-wip/
+├── rsgpt-ai-core/     # Python / Poetry — port 8090
+├── rsgpt-be/          # Python / Poetry — port 8080
+├── rsgpt-fe/          # Next.js — port 3000
+├── rsgpt-desktop/     # Electron — MCP gateway (dev webpack 5173)
+└── docs/
+    ├── RUNNING.md
+    └── MULTI_AGENT.md
+```
 
-- **ai-core** `495b1d3` — multi-agent port (+ local WIP cleanup: config-driven tool patterns/playbooks)
-- **be** `98bfb93` — timeline coalescer
-- **fe** `5aad934` — workflow trace UI (+ local uncommitted hook tweaks)
-- **desktop** `96cd467` — MCP gateway timeout fixes (local, not pushed)
+## Note on MCP server binaries
 
-See `manifest.yaml` for pinned commits.
+MCP `.exe` files under `rsgpt-desktop/python-servers/` are **not** in git (too large). Copy them from your Rocscience Desktop install or build pipeline before running Agent mode. Config is in `python-servers/mcp-servers.json`.
 
 ## Scripts
 
 | Script | Purpose |
 |--------|---------|
-| `scripts/clone-all.ps1` | Clone or junction-link service repos into `repos/` |
 | `scripts/smoke-test.ps1` | HTTP health check on ports 8090, 8080, 3000, 5173 |
-
-## License
-
-Same as constituent Rocscience repos — internal WIP.

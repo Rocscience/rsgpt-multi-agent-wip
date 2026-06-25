@@ -1,0 +1,70 @@
+{
+  "servers": [
+    {
+      "id": "rsinsight-landing-server",
+      "command": "python-servers\\rsinsight_landing_server.exe",
+      "args": [],
+      "enabled": true
+    },
+    {
+      "id": "rs2-server",
+      "command": "python-servers\\rs2-server-v0.3.92.exe",
+      "args": [],
+      "enabled": true,
+      "installed_version": "0.3.92",
+      "rocscience_app": "RS2",
+      "required_app_version": "11.0.2.8",
+      "rocscience_app_path": "C:\\Program Files\\Rocscience\\RS2-Fake\\RS2.exe"
+    },
+    {
+      "id": "rspile-server",
+      "command": "python-servers\\rspile-server-v0.0.32.exe",
+      "args": [],
+      "enabled": true,
+      "installed_version": "0.0.32",
+      "rocscience_app": "RSPile",
+      "required_app_version": "3.0.3.1",
+      "rocscience_app_path": "C:\\Program Files\\Rocscience\\RSPile\\RSPile.exe"
+    },
+    {
+      "id": "dips-server",
+      "command": "python-servers\\dips-server-v0.0.33.exe",
+      "args": [],
+      "enabled": false,
+      "installed_version": "0.0.33",
+      "rocscience_app": "Dips",
+      "required_app_version": "9.0.0.4",
+      "rocscience_app_path": "C:\\Program Files\\Rocscience\\Dips 9.0\\Dips.exe"
+    },
+    {
+      "id": "settle3-server",
+      "command": "python-servers\\settle3-server-v0.0.47.exe",
+      "args": [],
+      "enabled": true,
+      "installed_version": "0.0.47",
+      "rocscience_app": "Settle3",
+      "required_app_version": "5.0.2.8",
+      "rocscience_app_path": "C:\\Program Files\\Rocscience\\Settle3\\Settle3.exe"
+    },
+    {
+      "id": "rs3-server",
+      "command": "python-servers\\rs3-server-v0.1.23.exe",
+      "args": [],
+      "enabled": true,
+      "installed_version": "0.1.23",
+      "rocscience_app": "RS3",
+      "required_app_version": "4.0.4.2",
+      "rocscience_app_path": "C:\\Program Files\\Rocscience\\RS3\\RS3.exe"
+    },
+    {
+      "id": "slide2-server",
+      "command": "python-servers\\slide2-server-v0.0.14.exe",
+      "args": [],
+      "enabled": true,
+      "installed_version": "0.0.14",
+      "rocscience_app": "Slide2",
+      "required_app_version": "9.0.4.3",
+      "rocscience_app_path": "C:\\Program Files\\Rocscience\\Slide2\\Slide.exe"
+    }
+  ]
+}

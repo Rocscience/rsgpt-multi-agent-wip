@@ -1,0 +1,117 @@
+# Channel configurations for context retrieval
+# Each channel can have its own namespace, index, and settings
+
+context_stores:
+  documentation:
+    type: PineconeContextStore
+    namespace: nov2025
+    index_name: rocumentation-files
+    top_k: 30
+
+  tech_support:
+    type: PineconeContextStore
+    namespace: TechSupport-v1
+    index_name: rsgpt-techsupport
+    top_k: 30
+    encrypted: true  # Text data is AES encrypted
+
+  diana:
+    type: PineconeContextStore
+    namespace: Diana-0205
+    index_name: rsgpt-feb
+    top_k: 30
+
+  three_gsm:
+    type: PineconeContextStore
+    namespace: nov2025
+    index_name: 3gsm
+    top_k: 30
+
+  two_si:
+    type: PineconeContextStore
+    namespace: april2026
+    index_name: twosi-complete
+    top_k: 30
+
+  rockfield:
+    type: PineconeContextStore
+    namespace: Rockfield-1001
+    index_name: rsgpt-feb
+    top_k: 30
+
+  aquanty:
+    type: PineconeContextStore
+    namespace: __default__
+    index_name: aquanty
+    top_k: 30
+
+# Supported AI models for context management
+supported_models:
+  gpt-5.1-2025-11-13:
+    provider: openai
+    model: gpt-5.1-2025-11-13
+    max_input_tokens: 350000
+    max_output_tokens: 128000
+    encoding: o200k_base
+
+  gpt-5.2-2025-12-11:
+    provider: openai
+    model: gpt-5.2-2025-12-11
+    max_input_tokens: 350000
+    max_output_tokens: 128000
+    encoding: o200k_base
+
+  claude-sonnet-4-5-20250929:
+    provider: anthropic
+    model: claude-sonnet-4-5-20250929
+    max_input_tokens: 200000
+    max_output_tokens: 64000
+    encoding: cl100k_base
+
+  claude-haiku-4-5-20251001:
+    provider: anthropic
+    model: claude-haiku-4-5-20251001
+    max_input_tokens: 200000
+    max_output_tokens: 64000
+    encoding: cl100k_base
+
+  claude-opus-4-5-20251101:
+    provider: anthropic
+    model: claude-opus-4-5-20251101
+    max_input_tokens: 200000
+    max_output_tokens: 64000
+    encoding: cl100k_base
+
+  grok-4-1-fast-reasoning:
+    provider: xai
+    model: grok-4-1-fast-reasoning
+    max_input_tokens: 350000
+    max_output_tokens: 64000
+    encoding: cl100k_base
+
+  grok-4-1-fast-non-reasoning:
+    provider: xai
+    model: grok-4-1-fast-non-reasoning
+    max_input_tokens: 350000
+    max_output_tokens: 64000
+    encoding: cl100k_base
+
+  sonar-reasoning:
+    provider: perplexity
+    model: sonar-reasoning
+    max_input_tokens: 128000
+    max_output_tokens: 8000
+    encoding: cl100k_base
+
+  gemini-3-flash-preview:
+    provider: google
+    model: gemini-3-flash-preview
+    max_input_tokens: 1000000
+    max_output_tokens: 65536
+    encoding: cl100k_base
+
+# Default settings
+defaults:
+  top_k: 20
+  embedding_model: text-embedding-3-large
+  similarity_threshold: 0.7

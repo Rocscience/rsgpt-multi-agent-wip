@@ -1,0 +1,9 @@
+name: Deploy QA (ECS)
+on:
+  push: { branches: [ "qa" ] }
+  workflow_dispatch: {}
+jobs:
+  call:
+    uses: ./.github/workflows/_deploy.yml
+    with:
+      env_name: qa

@@ -1,0 +1,98 @@
+@import "tailwindcss";
+@plugin './hero.mjs';
+@source '../../node_modules/@heroui/theme/dist/**/*.{js,ts,jsx,tsx}';
+
+:root {
+  /* Dynamic positioning variables for chat components */
+  --scroll-button-bottom: 160px;
+  --message-list-padding: 180px;
+}
+
+/* Avoid clipping toasts: do not hide overflow on root */
+html,
+body {
+  overflow: visible;
+}
+
+body {
+  font-family: Arial, Helvetica, sans-serif;
+  margin: 0;
+  padding: 0;
+}
+
+/* Ensure toast region is above everything */
+[data-placement="bottom-right"],
+[data-placement="bottom-left"],
+[data-placement="bottom-center"],
+[data-placement="top-right"],
+[data-placement="top-left"],
+[data-placement="top-center"] {
+  z-index: 99999 !important;
+  pointer-events: none;
+}
+[data-placement] > * {
+  pointer-events: auto;
+}
+
+/* Smooth theme transitions to prevent flickering */
+* {
+  transition: background-color 0.2s ease-in-out, border-color 0.2s ease-in-out, color 0.2s ease-in-out;
+}
+
+/* Prevent transitions on page load to avoid flash */
+.no-transition * {
+  transition: none !important;
+}
+
+/* Custom scrollbar styles */
+.sidebar-scroll::-webkit-scrollbar {
+  width: 6px;
+}
+
+.sidebar-scroll::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.sidebar-scroll::-webkit-scrollbar-thumb {
+  background: #c0c3c8;
+  border-radius: 3px;
+}
+
+.sidebar-scroll::-webkit-scrollbar-thumb:hover {
+  background: #878b93;
+}
+
+.word-break {
+  word-break: break-word;
+}
+
+/* Toast enter: slide up + fade in */
+@keyframes toast-enter {
+  from {
+    opacity: 0;
+    transform: translateY(100%);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+.toast-enter {
+  animation: toast-enter 0.25s ease-out forwards;
+}
+
+/* Toast exit: fade out */
+@keyframes toast-exit {
+  from {
+    opacity: 1;
+    transform: translateY(0);
+  }
+  to {
+    opacity: 0;
+    transform: translateY(-8px);
+  }
+}
+.toast-exit {
+  animation: toast-exit 0.2s ease-in forwards;
+}
+

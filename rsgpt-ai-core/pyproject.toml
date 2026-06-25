@@ -1,0 +1,49 @@
+[tool.poetry]
+name = "rsgpt-ai-core"
+version = "0.3.13"
+
+description = "AI Core Service for RSGPT"
+authors = ["Rocscience"]
+readme = "README.md"
+packages = [{include = "app"}]
+
+[tool.poetry.dependencies]
+python = "^3.13"
+fastapi = ">=0.115.0,<0.117.0"
+uvicorn = {extras = ["standard"], version = ">=0.31.0,<0.36.0"}
+pydantic-settings = "^2.0.0"
+python-dotenv = "1.0.1"
+openai = "^2.7.1"
+anthropic = "^0.65.0"
+httpx = "^0.28.1"
+pinecone = "^7.3.0"
+pyyaml = "^6.0.3"
+cohere = "^5.18.0"
+websockets = "^15.0.1"
+openai-agents = {git = "https://github.com/Rocscience/openai-agents-python.git", tag = "v0.6.6-rs4", extras = ["litellm", "sqlalchemy"]}
+python-jose = {extras = ["cryptography"], version = "^3.3.0"}
+litellm = "^1.80.15"
+perplexityai = "^0.17.1"
+sqlalchemy = {extras = ["asyncio"], version = "^2.0.0"}
+psycopg2-binary = "^2.9.9"
+asyncpg = "^0.30.0"
+alembic = "^1.14.0"
+auth0-fastapi-api = "^1.0.0b3"
+autogen-core = ">=0.7.5"
+
+[tool.poetry.group.dev.dependencies]
+pytest = "^8.0.0"
+pytest-asyncio = "^0.24.0"
+pytest-cov = "^5.0.0"
+httpx = "^0.28.1"
+pytest-mock = "^3.14.0"
+mypy = "^1.17.1"
+types-pyyaml = "^6.0.12.20250915"
+pre-commit = "^4.3.0"
+
+[build-system]
+requires = ["poetry-core"]
+build-backend = "poetry.core.masonry.api"
+
+[tool.poetry.scripts]
+start = "app.main:start"

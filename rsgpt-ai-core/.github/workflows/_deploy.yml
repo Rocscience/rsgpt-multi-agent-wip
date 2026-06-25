@@ -1,0 +1,87 @@
+name: Reusable ECS deploy
+on:
+  workflow_call:
+    inputs:
+      env_name: { required: true, type: string }   # qa | production
+
+permissions:
+  id-token: write
+  contents: read
+
+jobs:
+  deploy:
+    environment: ${{ inputs.env_name }}
+    runs-on: ubuntu-latest
+    env:
+        AWS_REGION: ${{ vars.AWS_REGION }}
+        AWS_ACCOUNT_ID: ${{ vars.AWS_ACCOUNT_ID }}
+        ECR_REPO: ${{ vars.ECR_REPO }}
+        ECS_CLUSTER: ${{ vars.ECS_CLUSTER }}
+        ECS_SERVICE: ${{ vars.ECS_SERVICE }}
+        TASK_FAMILY: ${{ vars.TASK_FAMILY }}
+        CONTAINER_NAME: ${{ vars.CONTAINER_NAME }}
+        IMAGE_TAG: ${{ github.sha }}
+        IMAGE_URI: ${{ vars.AWS_ACCOUNT_ID }}.dkr.ecr.${{ vars.AWS_REGION }}.amazonaws.com/${{ vars.ECR_REPO }}:${{ github.sha }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Configure AWS credentials (OIDC)
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ vars.AWS_ROLE_TO_ASSUME }}
+          aws-region: ${{ vars.AWS_REGION }}
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Login to ECR
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Build & Push image (single-arch)
+        run: |
+          docker buildx build \
+            --platform linux/amd64 \
+            -t "${IMAGE_URI}" \
+            --cache-from=type=gha \
+            --cache-to=type=gha,mode=max \
+            --push \
+            .
+      # Pull current task definition JSON, replace image, register new rev
+      - name: Export current task definition
+        id: taskdef
+        run: |
+          aws ecs describe-task-definition \
+            --task-definition "${TASK_FAMILY}" \
+            --query "taskDefinition" > td.json
+      - name: Inject new image into task definition
+        run: |
+          # replace the image for the intended container only
+          jq --arg IMG "${IMAGE_URI}" --arg NAME "${CONTAINER_NAME}" '
+            .containerDefinitions |=
+            (map(if .name == $NAME then .image = $IMG else . end))
+            ' td.json > td-new.json
+          # Remove fields AWS forbids when registering a new revision
+          jq 'del(.taskDefinitionArn, .requiresAttributes, .compatibilities, .revision, .status, .registeredAt, .registeredBy)' td-new.json > td-register.json
+      - name: Register new task definition revision
+        id: register
+        run: |
+          NEW_TD_ARN=$(aws ecs register-task-definition \
+            --cli-input-json file://td-register.json \
+            --query "taskDefinition.taskDefinitionArn" \
+            --output text)
+          echo "NEW_TD_ARN=$NEW_TD_ARN" >> $GITHUB_OUTPUT
+      - name: Update ECS service
+        run: |
+          aws ecs update-service \
+            --cluster "${ECS_CLUSTER}" \
+            --service "${ECS_SERVICE}" \
+            --task-definition "${{ steps.register.outputs.NEW_TD_ARN }}"
+      - name: Wait for service stable
+        run: |
+          aws ecs wait services-stable \
+            --cluster "${ECS_CLUSTER}" \
+            --services "${ECS_SERVICE}"
+      - name: Output
+        run: |
+          echo "Deployed image: ${IMAGE_URI}"

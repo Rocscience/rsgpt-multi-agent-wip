@@ -1,0 +1,10 @@
+Generic single-database configuration for RSGPT AI Core.
+
+This directory contains Alembic migration scripts for the AI Core database.
+
+Commands:
+- Generate new migration: poetry run alembic revision --autogenerate -m "description"
+- Apply migrations: poetry run alembic upgrade head
+- Rollback one migration: poetry run alembic downgrade -1
+- Show current revision: poetry run alembic current
+- Show migration history: poetry run alembic history

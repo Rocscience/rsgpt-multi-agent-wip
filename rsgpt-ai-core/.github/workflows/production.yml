@@ -1,0 +1,9 @@
+name: Deploy Production (ECS)
+on:
+  push: { branches: [ "main" ] }
+  workflow_dispatch: {}
+jobs:
+  call:
+    uses: ./.github/workflows/_deploy.yml
+    with:
+      env_name: production
