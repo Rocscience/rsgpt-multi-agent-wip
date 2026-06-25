@@ -1,0 +1,17 @@
+# Cloned service repos (see scripts/clone-all.ps1)
+repos/*
+!repos/.gitkeep
+
+# Local env
+.env
+.env.local
+*.env
+
+# OS / editor
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+
+# Logs
+*.log
